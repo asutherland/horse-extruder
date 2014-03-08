@@ -3,7 +3,7 @@ var THREE = require('three');
 var ThreeBSP = require('threeBSP');
 
 exports.main = function() {
-  var camera, scene, renderer, funkyMesh
+  var camera, scene, renderer, funkyMesh;
 
   init();
   animate();

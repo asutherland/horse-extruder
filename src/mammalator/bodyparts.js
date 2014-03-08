@@ -122,11 +122,8 @@
 define(function(require, exports, module) {
 
 var THREE = require('three');
+var ThreeBSP = require('threeBSP');
 
-function BoneUVGenerator() {
-}
-BoneUVGenerator.prototype = {
-};
 
 /**
  * Torsos are extruded ovals that are beveled at the ends, because nature
@@ -140,46 +137,45 @@ BoneUVGenerator.prototype = {
  *   entirely allocated to that bone.  We then transition linearly between
  *   this segment and the next leg segment/bone.
  *
+ * @param {DynamicGeometryHelper} dgh
  * @param specs
  * @param specs.length
  * @param specs.height
  * @param specs.width
+ * @param specs.legLength
  * @param specs.legPairs [LegInfo]
  */
 function Torso(specs) {
   this.length = specs.length;
   this.height = specs.height;
   this.width = specs.width;
+  this.legLength = specs.legLength;
 
-  for (var iLegPair = 0; iLegPair < specs.legPairs.length; iLegPair++) {
-    var legPair = specs.legPairs[iLegPair];
+  var numLegPairs = specs.legPairs.length;
+  this.legPairs = specs.legPairs.map(function(legPair, iLegPair) {
+    // Because of how we're doing the bones via uv mapping, we do need to
+    // produce separate geometries.  For sanity/simplicity, we create a
+    // Leg object for each leg
+    var pairInfo = {
 
-  }
+    };
+  });
 }
 Torso.prototype = {
-  addLeg: function() {
-  },
-
-  createGeometry: function() {
+  _createTorsoGeom: function(dgh) {
     var vRad = this.height / 2, hRad = this.width / 2;
 
     // Our exciting oval body!
-    var shape = new THREE.Shape();
-    shape.moveTo(0, vRad);
-    shape.quadraticCurveTo(hRad, vRad, hRad, 0);
-    shape.quadraticCurveTo(hRad, -vRad, 0, -vRad);
-    shape.quadraticCurveTo(-hRad, -vRad, -hRad, 0);
-    shape.quadraticCurveTo(-hRad, vRad, 0, vRad);
+    var ovalShape = dgh.makeEllipseShape(hRad, vRad);
 
-    var uvgen = new BoneUVGenerator();
 
-    var geom = new THREE.ExtrudeGeometry(
-      shape,
-      {
-        steps: this.length / 0.1,
-        amount: this.length,
-        uvGenerator: uvgen
-      });
+  },
+
+  createCSG: function(dgh) {
+    var torsoGeom = this._createTorsoGeom(dgh);
+    var torsoMesh = new THREE.Mesh(torsoGeom);
+    var torsoCSG = new ThreeBSP(torsoMesh);
+
   }
 };
 
@@ -196,10 +192,52 @@ Torso.prototype = {
  *
  * Initial configurations are legs are vertical / perpendicular to the ground,
  * the foot is tangent to the leg / parallel to the ground.
+ *
+ * @param specs.radius
+ * @param specs.overallLength
+ *   The overall length of the leg.  This includes everything; all other sizes
+ *   are just talking about pieces of this overall length.
+ * @param specs.footLength
+ *   The len
  */
-function Leg() {
+function Leg(name, specs) {
+  this.name = name;
+  this.overallLength = specs.overallLength;
+  this.footLength = specs.footLength;
 };
 Leg.prototype = {
+  createCSG: function(dgh) {
+    var legLength = this.overallLength - this.footLength;
+    var upperLegBone = dgh.addBone({
+      name: this.name + '-upper-leg',
+      length: legLength * 0.4,
+      transition: legLength * 0.1
+    });
+    var lowerLegBone = dgh.addBone({
+      name: this.name + '-lower-leg',
+      length: legLength * 0.4,
+      transition: legLength * 0.1
+    });
+    var footBone = dgh.addBone({
+      name: this.name + '-foot',
+      length: this.footLength,
+      transition: 0
+    });
+
+    var geom = dgh.extrudeBonedThing({
+      shape:
+    });
+
+    var geom = new THREE.ExtrudeGeometry(
+      shape,
+      {
+        // Look at least a little bit round; 2 intra points per 90 deg.
+        curveSegments: 12,
+        steps: this.length / EXTRUDE_SAMPLE_DENSITY,
+        amount: this.length,
+        uvGenerator: uvgen
+      });
+  }
 };
 
 });
