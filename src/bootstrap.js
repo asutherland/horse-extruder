@@ -1,7 +1,7 @@
 require.config({
   baseUrl: 'src',
   paths: {
-    'three': '../lib/three.min',
+    'three': '../lib/three',
     'threeBSP': '../lib/ThreeCSG',
   },
   shim: {
