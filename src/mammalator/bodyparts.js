@@ -119,7 +119,7 @@
  * weight in the fractional part (and handle the 1.0 case by specifying 0.5 for
  * both or something), we can be clever/evil.
  */
-define(function(require, exports, module) {
+define(function(require) {
 
 var THREE = require('three');
 var ThreeBSP = require('threeBSP');
@@ -131,55 +131,146 @@ var ThreeBSP = require('threeBSP');
  *
  * We're assuming a quadruped+ for now.
  *
- * Torsos are the core of our hierarchy.  Bones:
- * - Root/anchor bone: middle of the torso, but not used for anything.
- * - One bone per leg pair.  The space allocated for the legs around it is
- *   entirely allocated to that bone.  We then transition linearly between
- *   this segment and the next leg segment/bone.
+ * Torsos are the core of our hierarchy.  We have our bones mimic reality with
+ *   a spine just below the surface at the top of the torso.  Bones:
+ * - Root/anchor bone: the spine at the withers/stable point.
+ * - One spine bone per leg pair.  This owns the part of the torso that
+ *   surrounds it, with transitions to the next spine links.
+ * - One hip-type bone per leg per leg pair.  These are hung off of the matching
+ *   spine bone.  The torso decides the position of this joint/socket, but
+ *   does not actually create it or use it itself.  Instead, we leave it to the
+ *   leg to create the bone.  We do tell it about the spine bone so it can
+ *   use it as the parent bone and perform some blending of the top of the leg
+ *   with the torso weighting.
  *
  * @param {DynamicGeometryHelper} dgh
  * @param specs
  * @param specs.length
  * @param specs.height
  * @param specs.width
+ * @param specs.skinDepth
+ *   How thick is the skin?  Controls how far inside the body bones go.  (At
+ *   least bones that we're not pretending are symmetrically encased in
+ *   muscle/fat/whatever, like we pretend legs are.)
  * @param specs.legLength
  * @param specs.legPairs [LegInfo]
  */
 function Torso(specs) {
-  this.length = specs.length;
-  this.height = specs.height;
-  this.width = specs.width;
-  this.legLength = specs.legLength;
+  var length = this.length = specs.length;
+  var height = this.height = specs.height;
+  var width = this.width = specs.width;
+  var skinDepth = this.skinDepth = specs.skinDepth;
+  var legLength = this.legLength = specs.legLength;
+
+  var halfHeight = height / 2;
+  var halfWidth = width / 2;
+  var torsoTop = legLength + height;
+  var spineTop = torsoTop - skinDepth;
 
   var numLegPairs = specs.legPairs.length;
+
+  var rootBonePos = this.rootBonePos =
+        new THREE.Vector3(0, spineTop, skinDepth);
+  var spineLength = (length - skinDepth * 2);
+  var spineDelta = new THREE.Vector3(0, 0, spineLength / (numLegPairs - 1));
+
   this.legPairs = specs.legPairs.map(function(legPair, iLegPair) {
     // Because of how we're doing the bones via uv mapping, we do need to
     // produce separate geometries.  For sanity/simplicity, we create a
     // Leg object for each leg
-    var pairInfo = {
-
+    var legSpecs = {
+      radius: legPair.radius,
+      overallLength: legLength + halfHeight,
+      footLength: specs.footLength
     };
+
+    var legXOffset = (halfWidth - legPair.radius);
+    var legYOffset = spineTop - (legLength + halfHeight);
+    var leftJointOffset = new THREE.Vector3(-legXOffset,
+                                            legYOffset,
+                                            0);
+    var rightJointOffset = new THREE.Vector3(legXOffset,
+                                             legYOffset,
+                                             0);
+
+    var pairInfo = {
+      spineBone: null,
+      spinePosDelta: iLegPair ? spineDelta : new THREE.Vector3(),
+      leftJointOffset: leftJointOffset,
+      rightJointOffset: rightJointOffset,
+      leftLeg: new Leg('legs' + iLegPair + '-left',  legSpecs, 'left'),
+      rightLeg: new Leg('legs' + iLegPair + '-right', legSpecs, 'right'),
+    };
+    return pairInfo;
   });
 }
 Torso.prototype = {
-  _createTorsoGeom: function(dgh) {
+  _createTorsoMesh: function(dgh) {
     var vRad = this.height / 2, hRad = this.width / 2;
+
+    // We want the entire spine to be oriented down the Z axis.
+    // We need to rotate from +Y (the bone direction convention) to +Z, which is
+    // around +X, 90 degs
+    var rootRotQ = new THREE.Quaternion();
+    rootRotQ.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
+    var rootBone = dgh.addBone({
+      name: 'root',
+      pos: this.rootBonePos,
+      rotq: rootRotQ,
+      // our root is not used for anything, this does not matter.
+      length: 0,
+      transition: 0
+    });
+
+    var norot = new THREE.Quaternion();
 
     // Our exciting oval body!
     var ovalShape = dgh.makeEllipseShape(hRad, vRad);
 
+    var lastSpineBone = rootBone;
+    // create the bones
+    var extrudeBones = this.legPairs.map(function(pairInfo, iPairInfo) {
+      lastSpineBone = pairInfo.spineBone = dgh.addBone({
+        name: 'spine' + iPairInfo,
+        parent: lastSpineBone,
+        pos: pairInfo.spinePosDelta,
+        // we are already pointed +Z
+        rotq: norot,
+      });
+      return lastSpineBone;
+    });
 
+    return dgh.extrudeBonedThingIntoMesh({
+      shape: ovalShape,
+      bones: extrudeBones,
+      length: this.length
+    });
   },
 
   createCSG: function(dgh) {
-    var torsoGeom = this._createTorsoGeom(dgh);
-    var torsoMesh = new THREE.Mesh(torsoGeom);
+    var torsoMesh = this._createTorsoMesh(dgh);
     var torsoCSG = new ThreeBSP(torsoMesh);
 
+    var aggrCSG = torsoCSG;
+
+    this.legPairs.forEach(function(pairInfo) {
+      var leftCSG = pairInfo.leftLeg.createCSG(
+        dgh, pairInfo.spineBone, pairInfo.leftJointOffset);
+      aggrCSG = aggrCSG.union(leftCSG);
+      var rightCSG = pairInfo.rightLeg.createCSG(
+        dgh, pairInfo.spineBone, pairInfo.rightJointOffset);
+      aggrCSG = aggrCSG.union(rightCSG);
+    });
+
+    return aggrCSG;
   }
 };
 
 /**
+ * Create a leg suitable for walking in the -Z direction with all joints
+ * rotating around -X because that's easier to right-hand-rule.  (If convention
+ * is different, that should be changed.)
+ *
  * A leg always consists of two leg segments connected by a knee, plus a foot
  * and an ankle.
  *
@@ -198,24 +289,26 @@ Torso.prototype = {
  *   The overall length of the leg.  This includes everything; all other sizes
  *   are just talking about pieces of this overall length.
  * @param specs.footLength
- *   The len
+ *   The length of the foot; this should probably be mooted by separate foot
+ *   geometry which self-identifies the size.
  */
-function Leg(name, specs) {
+function Leg(name, specs, whichLeg) {
   this.name = name;
+  this.radius = specs.radius;
   this.overallLength = specs.overallLength;
   this.footLength = specs.footLength;
 };
 Leg.prototype = {
-  createCSG: function(dgh) {
+  createCSG: function(dgh, spineBone, jointPosOffset) {
     var legLength = this.overallLength - this.footLength;
     var upperLegBone = dgh.addBone({
       name: this.name + '-upper-leg',
-      length: legLength * 0.4,
+      length: legLength * 0.5,
       transition: legLength * 0.1
     });
     var lowerLegBone = dgh.addBone({
       name: this.name + '-lower-leg',
-      length: legLength * 0.4,
+      length: legLength * 0.3,
       transition: legLength * 0.1
     });
     var footBone = dgh.addBone({
@@ -224,20 +317,25 @@ Leg.prototype = {
       transition: 0
     });
 
-    var geom = dgh.extrudeBonedThing({
-      shape:
+    var legShape = dgh.makeEllipseShape(this.radius, this.radius);
+    var legMesh = dgh.extrudeBonedThingIntoMesh({
+      shape: legShape,
+      featherBone: spineBone,
+      featherLength: legLength * 0.1,
+      bones: [
+        upperLegBone,
+        lowerLegBone,
+        footBone
+      ],
+      length: this.overallLength
     });
-
-    var geom = new THREE.ExtrudeGeometry(
-      shape,
-      {
-        // Look at least a little bit round; 2 intra points per 90 deg.
-        curveSegments: 12,
-        steps: this.length / EXTRUDE_SAMPLE_DENSITY,
-        amount: this.length,
-        uvGenerator: uvgen
-      });
+    return new ThreeBSP(legMesh);
   }
+};
+
+return {
+  Torso: Torso,
+  Leg: Leg
 };
 
 });
