@@ -179,7 +179,7 @@ DynamicGeometryHelper.prototype = {
       {
         // 3 intra points per 90 deg
         curveSegments: opts.curveSegments || 16,
-        steps: opts.length / EXTRUDE_SAMPLE_DENSITY,
+        steps: Math.floor(opts.length / EXTRUDE_SAMPLE_DENSITY),
         amount: opts.length,
         UVGenerator: uvgen
       });

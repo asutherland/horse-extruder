@@ -186,12 +186,15 @@ function Torso(specs) {
 
     var legXOffset = (halfWidth - legPair.radius);
     var legYOffset = spineTop - (legLength + halfHeight);
+    // While in world-space the hip-joint-ish things want to be X/Y displaced,
+    // in bone-space we actually want this to happen in X/Z space because of
+    // the rotation of the spine from +Y to +Z.
     var leftJointOffset = new THREE.Vector3(-legXOffset,
-                                            legYOffset,
-                                            0);
+                                            0,
+                                            legYOffset);
     var rightJointOffset = new THREE.Vector3(legXOffset,
-                                             legYOffset,
-                                             0);
+                                             0,
+                                             legYOffset);
 
     var pairInfo = {
       spineBone: null,
@@ -301,18 +304,35 @@ function Leg(name, specs, whichLeg) {
 Leg.prototype = {
   createCSG: function(dgh, spineBone, jointPosOffset) {
     var legLength = this.overallLength - this.footLength;
+    // The spine is transformed to point along +Z, but we want the leg pointing
+    // at -Y, so we want another 90 degree rotation around +X.
+    var rotLegDown = new THREE.Quaternion();
+    rotLegDown.setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
     var upperLegBone = dgh.addBone({
       name: this.name + '-upper-leg',
+      parent: spineBone,
+      pos: jointPosOffset,
+      rotq: rotLegDown,
       length: legLength * 0.5,
       transition: legLength * 0.1
     });
+    // The leg points at -Y like its parent.
+    var norot = new THREE.Quaternion();
     var lowerLegBone = dgh.addBone({
       name: this.name + '-lower-leg',
+      parent: upperLegBone,
+      // (in bone-space this bone is along the +Y axis from its parent)
+      pos: new THREE.Vector3(0, legLength * 0.55, 0),
+      rotq: norot,
       length: legLength * 0.3,
       transition: legLength * 0.1
     });
     var footBone = dgh.addBone({
       name: this.name + '-foot',
+      parent: lowerLegBone,
+      pos: new THREE.Vector3(0, legLength * 3, 0),
+      // the foot bone wants to be tangent in the future, but for  now...
+      rotq: norot,
       length: this.footLength,
       transition: 0
     });

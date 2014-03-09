@@ -15,7 +15,7 @@ exports.main = function() {
     camera = new THREE.PerspectiveCamera(
                75,
                window.innerWidth / window.innerHeight, 1, 10000 );
-    camera.position.z = 100;
+    camera.position.z = 10;
 
     scene = new THREE.Scene();
 
@@ -24,14 +24,14 @@ exports.main = function() {
       wireframe: true
     });
 
-    /*
-    var cubeGeom = new THREE.CubeGeometry( 200, 200, 200 );
+/*
+    var cubeGeom = new THREE.CubeGeometry( 2, 2, 2);
     var cubeMesh = new THREE.Mesh(cubeGeom);
     var cubeBSP = new ThreeBSP(cubeMesh);
 
-    var sphereGeom = new THREE.SphereGeometry( 100, 32, 32 );
+    var sphereGeom = new THREE.SphereGeometry( 1, 0.32, 0.32 );
     var sphereMesh = new THREE.Mesh(sphereGeom);
-    sphereMesh.position.set(100, 100, 100);
+    sphereMesh.position.set(1, 1, 1);
     var sphereBSP = new ThreeBSP(sphereMesh);
 
     var funkyBSP = cubeBSP.subtract(sphereBSP);
@@ -39,9 +39,9 @@ exports.main = function() {
     funkyMesh.geometry.computeVertexNormals();
 
     scene.add( funkyMesh );
-    */
+*/
 
-    var horseMesh = mammalate.makeHorse(funkyMaterial);
+    funkyMesh = mammalate.makeHorse(funkyMaterial);
 
     renderer = new THREE.WebGLRenderer();
     renderer.setSize( window.innerWidth - 10, window.innerHeight - 10);
